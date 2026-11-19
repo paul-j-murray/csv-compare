@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Work order comparison</title>
+<style>
+  :root {
+    --bg: #EEF1F4;
+    --surface: #FFFFFF;
+    --ink: #1C2833;
+    --muted: #5B6B7A;
+    --line: #CDD5DD;
+    --accent: #2F4BA0;
+    --accent-ink: #FFFFFF;
+    --differs: #9A5B00;
+    --differs-bg: #FFF1D6;
+    --blank: #1F5F8B;
+    --blank-bg: #DDEEFA;
+    --missing: #9B2D50;
+    --missing-bg: #FBE1EA;
+    --ok: #2E6B3F;
+    --error-bg: #FBE1E1;
+    --error: #8E1F1F;
+    --larger: #1E6B45;
+    --larger-bg: #E0F3E8;
+    --smaller: #7A4A12;
+    --smaller-bg: #F7EADB;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1A2029;
+      --surface: #232B36;
+      --ink: #E6EBF0;
+      --muted: #9AA8B6;
+      --line: #36414F;
+      --accent: #8FA6EB;
+      --accent-ink: #12182A;
+      --differs: #F2C068;
+      --differs-bg: #3D2F14;
+      --blank: #8CC6EE;
+      --blank-bg: #173248;
+      --missing: #F09AB6;
+      --missing-bg: #45202E;
+      --ok: #8FD3A0;
+      --error-bg: #4A1E1E;
+      --error: #F5AAAA;
+      --larger: #92D9B0;
+      --larger-bg: #183A2A;
+      --smaller: #EDC08F;
+      --smaller-bg: #3F2C16;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+  .lede { color: var(--muted); margin: 0 0 28px; max-width: 62ch; }
+
+  .files { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; }
+  .vs { align-self: center; color: var(--muted); font-size: 22px; }
+  .drop {
+    position: relative;
+    background: var(--surface);
+    border: 2px dashed var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    min-height: 120px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); }
+  .drop:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .drop.loaded { border-style: solid; border-color: var(--ok); }
+  .drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .drop .which { font-weight: 600; font-size: 17px; }
+  .drop .hint { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .drop .info { margin-top: 10px; font-size: 14px; word-break: break-all; }
+  .drop.loaded .info { color: var(--ok); }
+
+  .error {
+    display: none;
+    margin-top: 16px; padding: 12px 14px;
+    background: var(--error-bg); color: var(--error);
+    border-radius: 8px;
+  }
+
+  .results { display: none; margin-top: 32px; }
+  .summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .summary h2 { font-size: 19px; font-weight: 600; margin: 0 12px 0 0; }
+  .chip {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font: inherit; font-size: 14px;
+    cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .chip:focus-visible, button:focus-visible, label.check:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+  .btn {
+    background: var(--accent); color: var(--accent-ink);
+    border: 0; border-radius: 8px;
+    padding: 9px 16px; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  .btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); border-radius: 4px; }
+
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-weight: 600; color: var(--muted); background: var(--surface); position: sticky; top: 0; }
+  tr:last-child td { border-bottom: 0; }
+  td.code { font-family: "Cascadia Mono", Consolas, "Courier New", monospace; }
+  td.empty { color: var(--muted); font-style: italic; font-family: inherit; }
+  td.larger { background: var(--larger-bg); color: var(--larger); font-weight: 600; }
+  td.smaller { background: var(--smaller-bg); color: var(--smaller); }
+  td.same { color: var(--muted); }
+  .mark { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; font-size: 12px; font-weight: 600; margin-left: 8px; }
+  .tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .t-differs { background: var(--differs-bg); color: var(--differs); }
+  .t-blank { background: var(--blank-bg); color: var(--blank); }
+  .t-missing { background: var(--missing-bg); color: var(--missing); }
+  .note { color: var(--muted); font-size: 14px; margin-top: 10px; }
+  .combine { margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--line); }
+  .combine h2 { font-size: 19px; font-weight: 600; margin: 0 0 2px; }
+  .combine .hint { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; margin-bottom: 18px; }
+  .opts .wide { grid-column: 1 / -1; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; }
+  select {
+    font: inherit; font-weight: 400; font-size: 15px;
+    color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 7px 10px;
+  }
+  select:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  [hidden] { display: none !important; }
+  .combine .actions .note { margin: 0; }
+  @media (max-width: 640px) { .opts { grid-template-columns: 1fr; } }
+  .none { padding: 24px; text-align: center; color: var(--ok); font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .files { grid-template-columns: 1fr; }
+    .vs { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Work order comparison</h1>
+  <p class="lede">Compare two CSV files by VAMS_ID and list every ELLIPSE_WO that differs or is blank on one side. Files are read in this browser only and are not uploaded anywhere.</p>
+
+  <div class="files">
+    <div class="drop" id="drop1">
+      <input type="file" accept=".csv,.txt,text/csv" id="file1" aria-label="Choose file 1">
+      <div class="which">File 1</div>
+      <div class="hint">Drop a CSV here or click to choose</div>
+      <div class="info" id="info1"></div>
+    </div>
+    <div class="vs" aria-hidden="true">⇄</div>
+    <div class="drop" id="drop2">
+      <input type="file" accept=".csv,.txt,text/csv" id="file2" aria-label="Choose file 2">
+      <div class="which">File 2</div>
+      <div class="hint">Drop a CSV here or click to choose</div>
+      <div class="info" id="info2"></div>
+    </div>
+  </div>
+
+  <div class="error" id="error" role="alert"></div>
+
+  <section class="results" id="results" aria-live="polite">
+    <div class="summary" id="summary"></div>
+    <div class="actions">
+      <button class="btn" id="download">Download differences.csv</button>
+      <button class="btn secondary" id="copy">Copy to clipboard</button>
+      <label class="check"><input type="checkbox" id="excelSafe" checked> Keep leading zeros when opened in Excel</label>
+    </div>
+    <div class="table-wrap"><table id="table"></table></div>
+    <p class="note" id="note"></p>
+
+    <div class="combine">
+      <h2>Combine both files</h2>
+      <p class="hint">Build one CSV from both files using the options below.</p>
+      <div class="opts">
+        <label class="field">Rows to include
+          <select id="cScope">
+            <option value="all">All VAMS_IDs from both files</option>
+            <option value="both">Only VAMS_IDs in both files</option>
+            <option value="f1">Only VAMS_IDs in File 1</option>
+            <option value="f2">Only VAMS_IDs in File 2</option>
+          </select>
+        </label>
+        <label class="field">Layout
+          <select id="cLayout">
+            <option value="single">One ELLIPSE_WO column</option>
+            <option value="side">Both values side by side, with status</option>
+          </select>
+        </label>
+        <label class="field single-only">When values differ, use
+          <select id="cRule">
+            <option value="f1">The File 1 value</option>
+            <option value="f2">The File 2 value</option>
+            <option value="larger">The larger value</option>
+            <option value="smaller">The smaller value</option>
+          </select>
+        </label>
+        <label class="field single-only">When one value is blank
+          <select id="cBlank">
+            <option value="fill">Use the other file’s value</option>
+            <option value="blank">Leave it blank</option>
+          </select>
+        </label>
+        <label class="check single-only wide"><input type="checkbox" id="cSource" checked> Add a column showing which file each value came from</label>
+      </div>
+      <div class="actions">
+        <button class="btn" id="cDownload">Download combined.csv</button>
+        <span class="note" id="cCount"></span>
+      </div>
+      <p class="note" id="cRuleNote"></p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  const REQUIRED_ID = 'VAMS_ID';
+  const REQUIRED_WO = 'ELLIPSE_WO';
+  const MAX_ROWS_SHOWN = 2000;
+  const TYPES = {
+    'Value differs':    't-differs',
+    'Blank in File 1':  't-blank',
+    'Blank in File 2':  't-blank',
+    'Missing in File 1':'t-missing',
+    'Missing in File 2':'t-missing'
+  };
+
+  const state = { f1: null, f2: null, diffs: [], filter: 'All' };
+  const $ = id => document.getElementById(id);
+
+  function detectDelimiter(firstLine) {
+    const counts = { ',': 0, ';': 0, '\t': 0, '|': 0 };
+    for (const ch of firstLine) if (ch in counts) counts[ch]++;
+    return Object.keys(counts).reduce((a, b) => counts[b] > counts[a] ? b : a, ',');
+  }
+
+  // Minimal CSV parser with quote support; every value stays a string.
+  function parseCsv(text) {
+    text = text.replace(/^\uFEFF/, '');
+    const firstLine = text.split(/\r?\n/, 1)[0] || '';
+    const delim = detectDelimiter(firstLine);
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === delim) { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); rows.push(row); row = []; field = '';
+      } else field += c;
+    }
+    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(v => v.trim() !== ''));
+  }
+
+  function buildMap(rows, name) {
+    if (!rows.length) throw new Error(name + ' is empty.');
+    const header = rows[0].map(h => h.trim().toUpperCase());
+    const idCol = header.indexOf(REQUIRED_ID);
+    const woCol = header.indexOf(REQUIRED_WO);
+    if (idCol < 0 || woCol < 0) {
+      throw new Error(name + ' needs the columns ' + REQUIRED_ID + ' and ' + REQUIRED_WO +
+        '. Found: ' + rows[0].join(', '));
+    }
+    const map = new Map();
+    let duplicates = 0;
+    for (let r = 1; r < rows.length; r++) {
+      const id = (rows[r][idCol] || '').trim();
+      if (!id) continue;
+      if (map.has(id)) duplicates++;
+      map.set(id, (rows[r][woCol] || '').trim());
+    }
+    return { map, duplicates };
+  }
+
+  // Compares digit strings of any length: 1 if a > b, -1 if a < b, 0 if equal, null if not numeric.
+  function compareNumbers(a, b) {
+    if (!/^\d+$/.test(a) || !/^\d+$/.test(b)) return null;
+    const x = a.replace(/^0+/, '') || '0';
+    const y = b.replace(/^0+/, '') || '0';
+    if (x.length !== y.length) return x.length > y.length ? 1 : -1;
+    return x === y ? 0 : (x > y ? 1 : -1);
+  }
+
+  function largerLabel(cmp) {
+    if (cmp === 1) return 'File 1';
+    if (cmp === -1) return 'File 2';
+    if (cmp === 0) return 'Same number (leading zeros differ)';
+    return '';
+  }
+
+  function compare(m1, m2) {
+    const diffs = [];
+    const ids = [...m1.keys(), ...[...m2.keys()].filter(k => !m1.has(k))];
+    for (const id of ids) {
+      const in1 = m1.has(id), in2 = m2.has(id);
+      const a = in1 ? m1.get(id) : '', b = in2 ? m2.get(id) : '';
+      let type = null;
+      if (!in1) type = 'Missing in File 1';
+      else if (!in2) type = 'Missing in File 2';
+      else if (a === '' && b === '') type = null;
+      else if (a === '') type = 'Blank in File 1';
+      else if (b === '') type = 'Blank in File 2';
+      else if (a !== b) type = 'Value differs';
+      if (type) {
+        const cmp = type === 'Value differs' ? compareNumbers(a, b) : null;
+        diffs.push({ id, a, b, type, cmp });
+      }
+    }
+    return diffs;
+  }
+
+  function loadFile(n, file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const name = 'File ' + n;
+      try {
+        const { map, duplicates } = buildMap(parseCsv(reader.result), name + ' (' + file.name + ')');
+        state['f' + n] = map;
+        $('drop' + n).classList.add('loaded');
+        $('info' + n).textContent = file.name + ': ' + map.size.toLocaleString() + ' rows' +
+          (duplicates ? ' (' + duplicates + ' duplicate IDs, last value used)' : '');
+        hideError();
+        run();
+      } catch (e) {
+        state['f' + n] = null;
+        $('drop' + n).classList.remove('loaded');
+        $('info' + n).textContent = '';
+        showError(e.message);
+        $('results').style.display = 'none';
+      }
+    };
+    reader.onerror = () => showError('Could not read ' + file.name + '.');
+    reader.readAsText(file);
+  }
+
+  function showError(msg) { const e = $('error'); e.textContent = msg; e.style.display = 'block'; }
+  function hideError() { $('error').style.display = 'none'; }
+
+  function run() {
+    if (!state.f1 || !state.f2) return;
+    state.diffs = compare(state.f1, state.f2);
+    state.filter = 'All';
+    $('results').style.display = 'block';
+    renderSummary();
+    renderTable();
+    updateCombineUi();
+  }
+
+  function renderSummary() {
+    const s = $('summary');
+    s.innerHTML = '';
+    const h = document.createElement('h2');
+    h.textContent = state.diffs.length.toLocaleString() + (state.diffs.length === 1 ? ' difference' : ' differences');
+    s.appendChild(h);
+    const counts = {};
+    state.diffs.forEach(d => counts[d.type] = (counts[d.type] || 0) + 1);
+    const filters = ['All', ...Object.keys(TYPES).filter(t => counts[t])];
+    if (filters.length <= 2 && state.diffs.length) filters.shift();
+    filters.forEach(f => {
+      if (!state.diffs.length) return;
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.textContent = f + ' (' + (f === 'All' ? state.diffs.length : counts[f]).toLocaleString() + ')';
+      b.setAttribute('aria-pressed', String(state.filter === f || (filters.length === 1)));
+      b.onclick = () => { state.filter = f; renderSummary(); renderTable(); };
+      s.appendChild(b);
+    });
+    const hasDiffs = state.diffs.length > 0;
+    $('download').disabled = !hasDiffs;
+    $('copy').disabled = !hasDiffs;
+    $('download').hidden = !hasDiffs;
+    $('copy').hidden = !hasDiffs;
+  }
+
+  function visibleDiffs() {
+    return state.filter === 'All' ? state.diffs : state.diffs.filter(d => d.type === state.filter);
+  }
+
+  function cell(tr, text, cls, marker) {
+    const td = document.createElement('td');
+    if (text === '') { td.textContent = 'blank'; td.className = 'empty'; }
+    else {
+      td.textContent = text;
+      if (cls) td.className = cls;
+      if (marker) {
+        const m = document.createElement('span');
+        m.className = 'mark';
+        m.textContent = marker;
+        td.appendChild(m);
+      }
+    }
+    tr.appendChild(td);
+  }
+
+  function sideStyle(cmp, side) {
+    if (cmp === null || cmp === undefined) return { cls: 'code', marker: '' };
+    if (cmp === 0) return { cls: 'code same', marker: '= same number' };
+    const isLarger = (side === 1 && cmp === 1) || (side === 2 && cmp === -1);
+    return isLarger
+      ? { cls: 'code larger', marker: '▲ larger' }
+      : { cls: 'code smaller', marker: '▼ smaller' };
+  }
+
+  function renderTable() {
+    const t = $('table');
+    t.innerHTML = '';
+    const rows = visibleDiffs();
+    if (!state.diffs.length) {
+      t.innerHTML = '<tr><td class="none">No differences. Both files match.</td></tr>';
+      $('note').textContent = '';
+      return;
+    }
+    const thead = t.createTHead().insertRow();
+    ['VAMS_ID', 'ELLIPSE_WO (File 1)', 'ELLIPSE_WO (File 2)', 'Difference'].forEach(h => {
+      const th = document.createElement('th'); th.textContent = h; thead.appendChild(th);
+    });
+    const tbody = t.createTBody();
+    const frag = document.createDocumentFragment();
+    rows.slice(0, MAX_ROWS_SHOWN).forEach(d => {
+      const tr = document.createElement('tr');
+      cell(tr, d.id, 'code');
+      const s1 = sideStyle(d.cmp, 1), s2 = sideStyle(d.cmp, 2);
+      cell(tr, d.type === 'Missing in File 1' ? '' : d.a, s1.cls, s1.marker);
+      cell(tr, d.type === 'Missing in File 2' ? '' : d.b, s2.cls, s2.marker);
+      const td = document.createElement('td');
+      const tag = document.createElement('span');
+      tag.className = 'tag ' + TYPES[d.type];
+      tag.textContent = d.type;
+      td.appendChild(tag); tr.appendChild(td);
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+    $('note').textContent = rows.length > MAX_ROWS_SHOWN
+      ? 'Showing the first ' + MAX_ROWS_SHOWN.toLocaleString() + ' of ' + rows.length.toLocaleString() + ' rows. The download includes all of them.'
+      : '';
+  }
+
+  function csvValue(v, excelSafe) {
+    if (excelSafe && v !== '' && /^\d+$/.test(v)) return '="' + v + '"';
+    return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
+  function buildCsv() {
+    const safe = $('excelSafe').checked;
+    const lines = ['VAMS_ID,ELLIPSE_WO_F1,ELLIPSE_WO_F2,DifferenceType,LargerValue'];
+    visibleDiffs().forEach(d => {
+      lines.push([csvValue(d.id, safe), csvValue(d.a, safe), csvValue(d.b, safe), d.type,
+        csvValue(largerLabel(d.cmp), false)].join(','));
+    });
+    return lines.join('\r\n');
+  }
+
+  function downloadCsv(filename, text) {
+    const blob = new Blob(['\uFEFF' + text], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  $('download').onclick = () => downloadCsv('differences.csv', buildCsv());
+
+  // ---------- Combine ----------
+  function combinedIds() {
+    const m1 = state.f1, m2 = state.f2;
+    switch ($('cScope').value) {
+      case 'both': return [...m1.keys()].filter(k => m2.has(k));
+      case 'f1':   return [...m1.keys()];
+      case 'f2':   return [...m2.keys()];
+      default:     return [...m1.keys(), ...[...m2.keys()].filter(k => !m1.has(k))];
+    }
+  }
+
+  function statusOf(in1, in2, a, b) {
+    if (!in1) return 'Missing in File 1';
+    if (!in2) return 'Missing in File 2';
+    if (a === b) return 'Match';
+    if (a === '') return 'Blank in File 1';
+    if (b === '') return 'Blank in File 2';
+    return 'Value differs';
+  }
+
+  // Returns [value, source] for the single-column layout.
+  function resolve(in1, in2, a, b) {
+    if (!in1) return [b, b === '' ? 'Blank' : 'File 2 only'];
+    if (!in2) return [a, a === '' ? 'Blank' : 'File 1 only'];
+    if (a === b) return [a, a === '' ? 'Blank' : 'Both'];
+    if (a === '' || b === '') {
+      if ($('cBlank').value === 'blank') return ['', 'Blank'];
+      return a === '' ? [b, 'File 2'] : [a, 'File 1'];
+    }
+    const rule = $('cRule').value;
+    const cmp = compareNumbers(a, b);
+    let pickFirst;
+    if (rule === 'f1') pickFirst = true;
+    else if (rule === 'f2') pickFirst = false;
+    else if (cmp === null) pickFirst = true;           // not numeric: fall back to File 1
+    else if (rule === 'larger') pickFirst = cmp >= 0;  // ties: File 1
+    else pickFirst = cmp <= 0;
+    return pickFirst ? [a, 'File 1'] : [b, 'File 2'];
+  }
+
+  function buildCombined() {
+    const safe = $('excelSafe').checked;
+    const side = $('cLayout').value === 'side';
+    const withSource = $('cSource').checked;
+    const m1 = state.f1, m2 = state.f2;
+    const ids = combinedIds();
+    const header = side
+      ? ['VAMS_ID', 'ELLIPSE_WO_F1', 'ELLIPSE_WO_F2', 'Status', 'LargerValue']
+      : ['VAMS_ID', 'ELLIPSE_WO'].concat(withSource ? ['Source'] : []);
+    const lines = [header.join(',')];
+    for (const id of ids) {
+      const in1 = m1.has(id), in2 = m2.has(id);
+      const a = in1 ? m1.get(id) : '', b = in2 ? m2.get(id) : '';
+      if (side) {
+        const status = statusOf(in1, in2, a, b);
+        const larger = status === 'Value differs' ? largerLabel(compareNumbers(a, b)) : '';
+        lines.push([csvValue(id, safe), csvValue(a, safe), csvValue(b, safe), status, csvValue(larger, false)].join(','));
+      } else {
+        const [value, source] = resolve(in1, in2, a, b);
+        lines.push([csvValue(id, safe), csvValue(value, safe)].concat(withSource ? [source] : []).join(','));
+      }
+    }
+    return { text: lines.join('\r\n'), count: ids.length };
+  }
+
+  function updateCombineUi() {
+    if (!state.f1 || !state.f2) return;
+    const side = $('cLayout').value === 'side';
+    document.querySelectorAll('.single-only').forEach(el => el.hidden = side);
+    const n = combinedIds().length;
+    $('cCount').textContent = n.toLocaleString() + (n === 1 ? ' row' : ' rows') + ' will be included';
+    const rule = $('cRule').value;
+    $('cRuleNote').textContent = !side && (rule === 'larger' || rule === 'smaller')
+      ? 'If two values aren’t plain numbers, or are the same number with different leading zeros, the File 1 value is used.'
+      : '';
+  }
+
+  ['cScope', 'cLayout', 'cRule', 'cBlank'].forEach(id => $(id).addEventListener('change', updateCombineUi));
+  $('cDownload').onclick = () => downloadCsv('combined.csv', buildCombined().text);
+
+  $('copy').onclick = async () => {
+    const tsv = ['VAMS_ID\tELLIPSE_WO_F1\tELLIPSE_WO_F2\tDifferenceType\tLargerValue']
+      .concat(visibleDiffs().map(d => [d.id, d.a, d.b, d.type, largerLabel(d.cmp)].join('\t'))).join('\r\n');
+    try {
+      await navigator.clipboard.writeText(tsv);
+      $('copy').textContent = 'Copied';
+    } catch (e) {
+      $('copy').textContent = 'Copy blocked by browser';
+    }
+    setTimeout(() => $('copy').textContent = 'Copy to clipboard', 1800);
+  };
+
+  [1, 2].forEach(n => {
+    const input = $('file' + n), drop = $('drop' + n);
+    input.addEventListener('change', () => { if (input.files[0]) loadFile(n, input.files[0]); });
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); drop.classList.remove('over');
+      if (e.dataTransfer.files[0]) loadFile(n, e.dataTransfer.files[0]);
+    });
+  });
+})();
+</script>
+</body>
+</html>
